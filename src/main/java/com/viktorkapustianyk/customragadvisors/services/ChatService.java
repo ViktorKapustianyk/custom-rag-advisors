@@ -3,11 +3,13 @@ package com.viktorkapustianyk.customragadvisors.services;
 import com.viktorkapustianyk.customragadvisors.repo.ChatRepository;
 import com.viktorkapustianyk.customragadvisors.model.Chat;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.SneakyThrows;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 
@@ -21,8 +23,6 @@ public class ChatService {
     private final ChatRepository chatRepository;
     private final ChatClient chatClient;
     private final ChatEntryService chatEntryService;
-
-    private static final Logger log = LoggerFactory.getLogger(ChatService.class);
 
     public List<Chat> getAllChats() {
         return chatRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
@@ -44,32 +44,32 @@ public class ChatService {
         chatRepository.deleteById(chatId);
     }
 
-//    public void proceedInteraction(Long chatId, String prompt) {
-//        chatEntryService.addChatEntry(chatId, prompt, USER);
-//        String chatResponse = chatClient.prompt().user(prompt).call().content();
-//        chatEntryService.addChatEntry(chatId, chatResponse, ASSISTANT);
-//    }
-
     public void proceedInteraction(Long chatId, String prompt) {
         chatEntryService.addChatEntry(chatId, prompt, USER);
+        String chatResponse = chatClient.prompt().user(prompt).call().content();
+        chatEntryService.addChatEntry(chatId, chatResponse, ASSISTANT);
+    }
 
-        log.info("Sending request to LLM: chatId={}, promptLength={}",
-                chatId, prompt == null ? 0 : prompt.length());
+    public SseEmitter proceedInteractionWithStreaming(Long chatId, String prompt) {
+        chatEntryService.addChatEntry(chatId, prompt, USER);
 
-        try {
-            String chatResponse = chatClient
-                    .prompt()
-                    .user(prompt)
-                    .call()
-                    .content();
+        StringBuilder answer = new StringBuilder();
 
-            log.info("Received response from LLM: chatId={}, responseLength={}",
-                    chatId, chatResponse == null ? 0 : chatResponse.length());
+        SseEmitter sseEmitter = new SseEmitter(0L);
 
-            chatEntryService.addChatEntry(chatId, chatResponse, ASSISTANT);
-        } catch (RuntimeException exception) {
-            log.error("LLM request failed: chatId={}", chatId, exception);
-            throw exception;
-        }
+        chatClient.prompt().user(prompt).stream()
+                .chatResponse()
+                .subscribe(chatResponse -> processToken(chatResponse, sseEmitter, answer),
+                        sseEmitter::completeWithError,
+                        ()-> chatEntryService.addChatEntry(chatId, answer.toString(), ASSISTANT));
+
+        return sseEmitter;
+    }
+
+    @SneakyThrows
+    private void processToken(ChatResponse chatResponse, SseEmitter sseEmitter, StringBuilder answer) {
+        AssistantMessage token = chatResponse.getResult().getOutput();
+        sseEmitter.send(token);
+        answer.append(token.getText());
     }
 }
