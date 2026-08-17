@@ -5,6 +5,7 @@ import com.viktorkapustianyk.customragadvisors.model.Chat;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.data.domain.Sort;
@@ -51,13 +52,14 @@ public class ChatService {
     }
 
     public SseEmitter proceedInteractionWithStreaming(Long chatId, String prompt) {
-        chatEntryService.addChatEntry(chatId, prompt, USER);
+//        chatEntryService.addChatEntry(chatId, prompt, USER);
 
         StringBuilder answer = new StringBuilder();
-
         SseEmitter sseEmitter = new SseEmitter(0L);
 
-        chatClient.prompt().user(prompt).stream()
+        chatClient.prompt().user(prompt)
+                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, String.valueOf(chatId)))
+                .stream()
                 .chatResponse()
                 .subscribe(chatResponse -> processToken(chatResponse, sseEmitter, answer),
                         sseEmitter::completeWithError,

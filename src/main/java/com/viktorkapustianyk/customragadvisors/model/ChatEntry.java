@@ -6,6 +6,9 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
 
 import java.time.LocalDateTime;
 
@@ -27,4 +30,19 @@ public class ChatEntry {
 
     @CreationTimestamp
     private LocalDateTime createdAt;
+
+    public static ChatEntry toChatEntry(Message message){
+        return ChatEntry.builder()
+                .content(message.getText())
+                .role(Role.getRole(message.getMessageType().getValue()))
+                .build();
+    }
+
+    public Message toMessage() {
+        if (role == Role.USER) {
+            return new UserMessage(content);
+        } else {
+            return new AssistantMessage(content);
+        }
+    }
 }
